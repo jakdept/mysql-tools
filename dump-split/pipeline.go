@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os"
 	"time"
 )
 
@@ -53,4 +54,41 @@ func (p *Pipeline) Write(in []byte) (int, error) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return p.buf.Write(in)
+}
+
+// Consume will read from an io.Reader until it hits an error.
+// If that error is not io.EOF, it is returned through the error channel.
+func (p *Pipeline) Consume(r io.Reader, errChan chan<- error) {
+	var err error
+	var n, i int
+	var buf []byte
+	go func() {
+		for {
+			n, err = r.Read(buf)
+			if err != nil {
+				break
+			}
+			i, err = p.Write(buf)
+			if err != nil {
+				break
+			}
+			if i != n {
+				err = errors.New("lost bytes in transfer")
+				break
+			}
+		}
+		if err != io.EOF {
+			errChan <- err
+		}
+	}()
+}
+
+func FilePipeline(name string) (Pipeline, error) {
+	f, err := os.Open(name)
+	if err != nil {
+		return Pipeline{}, err
+	}
+
+	newPipeLine
+
 }
