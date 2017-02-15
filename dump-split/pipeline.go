@@ -9,9 +9,10 @@ import (
 )
 
 type Pipeline struct {
-	MaxSize int
-	buf     bytes.Buffer
-	closed  bool
+	MaxSize   int
+	buf       bytes.Buffer
+	closed    bool
+	LastError error
 }
 
 // IsClosed reports if the pipeline is closed.
@@ -58,37 +59,39 @@ func (p *Pipeline) Write(in []byte) (int, error) {
 
 // Consume will read from an io.Reader until it hits an error.
 // If that error is not io.EOF, it is returned through the error channel.
-func (p *Pipeline) Consume(r io.Reader, errChan chan<- error) {
+func (p *Pipeline) Consume(r io.Reader) {
 	var err error
 	var n, i int
 	var buf []byte
-	go func() {
-		for {
-			n, err = r.Read(buf)
-			if err != nil {
-				break
-			}
-			i, err = p.Write(buf)
-			if err != nil {
-				break
-			}
-			if i != n {
-				err = errors.New("lost bytes in transfer")
-				break
-			}
+	for {
+		n, err = r.Read(buf)
+		if err != nil {
+			break
 		}
-		if err != io.EOF {
-			errChan <- err
+		i, err = p.Write(buf)
+		if err != nil {
+			break
 		}
-	}()
+		if i != n {
+			p.LastError = errors.New("lost bytes in transfer")
+			p.Close()
+			return
+		}
+	}
+	if err != io.EOF {
+		p.LastError = err
+	}
+	p.Close()
 }
 
+// FilePipeline opens a given file for reading, and produces a PIpeline from it.
 func FilePipeline(name string) (Pipeline, error) {
 	f, err := os.Open(name)
 	if err != nil {
 		return Pipeline{}, err
 	}
 
-	newPipeLine
-
+	var newPipeline Pipeline
+	go newPipeline.Consume(f)
+	return newPipeline, nil
 }
