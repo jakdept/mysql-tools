@@ -9,28 +9,28 @@ import (
 )
 
 type Pipeline struct {
-	MaxSize   int
-	buf       bytes.Buffer
-	closed    bool
-	LastError error
+	MaxSize int
+	buf     bytes.Buffer
+	closed  bool
+	Error   error
 }
 
 // IsClosed reports if the pipeline is closed.
-func (p *Pipeline) IsClosed() bool {
+func (p Pipeline) IsClosed() bool {
 	return p.closed
 }
 
 // Close changes the pipeline so that it's in a closed state.
 // Further writes into the pipeline will not be accepted.
 // The pipeline can still be read from.
-func (p *Pipeline) Close() {
+func (p Pipeline) Close() {
 	p.closed = true
 }
 
 // Read will return some back.
 // If there is nothing in the buffer, nothing is returned.
 // Only if the Pipeline is closed and empty will it return io.EOF.
-func (p *Pipeline) Read(out []byte) (int, error) {
+func (p Pipeline) Read(out []byte) (int, error) {
 	// if the pipeline is not closed, return it
 	if p.closed && p.buf.Len() < 1 {
 		return 0, io.EOF
@@ -45,7 +45,7 @@ func (p *Pipeline) Read(out []byte) (int, error) {
 // Writing into a closed pipeline will return an error.
 // If the pipeline has a non-zero MaxSize (so a limit on it's size), the Write
 // will be blocked until it will not push it over that size.
-func (p *Pipeline) Write(in []byte) (int, error) {
+func (p Pipeline) Write(in []byte) (int, error) {
 	if p.closed {
 		return 0, errors.New("cannot write to closed pipeline")
 	}
@@ -59,7 +59,7 @@ func (p *Pipeline) Write(in []byte) (int, error) {
 
 // Consume will read from an io.Reader until it hits an error.
 // If that error is not io.EOF, it is returned through the error channel.
-func (p *Pipeline) Consume(r io.Reader) {
+func (p Pipeline) Consume(r io.Reader) {
 	var err error
 	var n, i int
 	var buf []byte
@@ -73,13 +73,13 @@ func (p *Pipeline) Consume(r io.Reader) {
 			break
 		}
 		if i != n {
-			p.LastError = errors.New("lost bytes in transfer")
+			p.Error = errors.New("lost bytes in transfer")
 			p.Close()
 			return
 		}
 	}
 	if err != io.EOF {
-		p.LastError = err
+		p.Error = err
 	}
 	p.Close()
 }
