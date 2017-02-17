@@ -1,5 +1,6 @@
 package main
 
+/*
 import (
 	"bytes"
 	"errors"
@@ -95,3 +96,5 @@ func FilePipeline(name string) (Pipeline, error) {
 	go newPipeline.Consume(f)
 	return newPipeline, nil
 }
+
+*/
