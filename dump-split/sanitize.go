@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"sort"
 )
 
 // SplitBytes satasifies bufio.SplitFunc while allowing splitting on a []byte
@@ -16,6 +17,48 @@ func SplitBytes(endToken []byte) bufio.SplitFunc {
 		}
 		if i := bytes.Index(data, endToken); i >= 0 {
 			return i + len(endToken), data[0:i], nil
+		}
+		// If we're at EOF, we have a final, non-terminated line. Return it.
+		if atEOF {
+			return len(data), data, nil
+		}
+		// Request more data.
+		return 0, nil, nil
+	}
+}
+
+type endTokenLocation struct {
+	pos int
+	len int
+}
+
+type endTokenLocations []endTokenLocation
+
+func (t endTokenLocations) Len() int {
+	return len(t)
+}
+func (t endTokenLocations) Less(i, j int) bool {
+	return t[i].pos+t[i].len < t[j].pos+t[i].len
+}
+func (t endTokenLocations) Swap(i, j int) {
+	t[i], t[j] = t[j], t[i]
+}
+
+func SplitBytesSet(endTokens [][]byte) bufio.SplitFunc {
+	return func(data []byte, atEOF bool) (advance int, token []byte, err error) {
+		if atEOF && len(data) == 0 {
+			return 0, nil, nil
+		}
+		var endLocations endTokenLocations
+		for _, token := range endTokens {
+			if i := bytes.Index(data, token); i >= 0 {
+				endLocations = append(endLocations, endTokenLocation{pos: i, len: len(token)})
+			}
+		}
+		if len(endLocations) > 0 {
+			sort.Sort(endLocations)
+			return endLocations[0].pos + endLocations[0].len, data[0:endLocations[0].pos], nil
+
 		}
 		// If we're at EOF, we have a final, non-terminated line. Return it.
 		if atEOF {
