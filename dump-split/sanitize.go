@@ -31,15 +31,36 @@ func SplitBytes(endToken []byte) bufio.SplitFunc {
 //
 // Example usage to remove go comments from source code:
 //     reader := Sanitize("/*", "*/", r)
-//     reader := Sanitize("//", "*\n, r)
 func Sanitize(start, end []byte, r io.Reader) bytes.Buffer {
 	// create my output io.Reader
 	var buf bytes.Buffer
-	// var discard bool
 
 	// create a scanner that breaks on end
 	s := bufio.NewScanner(r)
 	s.Split(SplitBytes(end))
+
+	go func() {
+		for s.Scan() {
+			// somewhere in here, I need to look for start - and if i find it, start discarding instead
+			if _, err := buf.Write(bytes.TrimSpace(bytes.Split(s.Bytes(), start)[0])); err != nil {
+				panic(err)
+			}
+		}
+	}()
+	return buf
+}
+
+// SanitizeToEOL removes stuff from an io.Reader, returning a bytes.Buffer.
+// It removes from start (byte slice) to the end of that line.
+//
+// Example usage to remove go comments from source code:
+//     reader := SanitizeToEOL("//")
+func SanitizeToEOL(start []byte, r io.Reader) bytes.Buffer {
+	// create my output io.Reader
+	var buf bytes.Buffer
+
+	// create a scanner that breaks on end
+	s := bufio.NewScanner(r)
 
 	go func() {
 		for s.Scan() {
