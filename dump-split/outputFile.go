@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -152,4 +153,20 @@ func (f *OutputFile) Close() error {
     problem closing closing table schema: %v
     `, errs[0], errs[1])
 	}
+}
+
+func HasPrefix(s, prefix []byte) bool {
+	return len(s) >= len(prefix) &&
+		bytes.Equal(bytes.ToLower(s[0:len(prefix)]), bytes.ToLower(prefix))
+}
+
+func TrimPrefix(s, prefix []byte) []byte {
+	if HasPrefix(s, prefix) {
+		return s[len(prefix):]
+	}
+	return s
+}
+
+func (f *OutputFile) WriteRow(line []byte) error {
+	return nil
 }
