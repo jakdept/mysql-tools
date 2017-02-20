@@ -17,11 +17,14 @@ const (
 	CreateTable
 	InsertOverwrite
 	InsertIgnore
+	StaticDatabase
 )
 
 var openFiles openFileList
 var filePermissions os.FileMode
 var maxOpenFiles = 256
+var globalOptions = 0
+var globalPath = "./"
 
 type OutputFile struct {
 	data       *os.File
@@ -32,35 +35,31 @@ type OutputFile struct {
 	lastAccess time.Time
 }
 
-type openFileList []OutputFile
+func GetFile(dbName, tableName string) (OutputFile, error) {
+	for _, each := range openFiles {
+		if each.db == dbName && each.table == tableName {
+			return each, nil
+		}
+	}
 
-// Len is the number of elements in the collection.
-func (f openFileList) Len() int { return len(f) }
-
-// Swap swaps the elements with indexes i and j.
-func (f openFileList) Swap(i, j int) { f[i], f[j] = f[j], f[i] }
-
-// Less reports whether the element with
-// index i should sort before the element with index j.
-func (f openFileList) Less(i, j int) bool {
-	return f[i].lastAccess.Before(f[j].lastAccess)
-}
-
-func OpenFile(dbName, tableName, path string, options int) (OutputFile, error) {
-	// prune a file if needed to make sure we've got room for this one
 	if err := pruneFiles(); err != nil {
 		return OutputFile{}, err
 	}
 
 	var filename string
-	if options&PerTable != 0 {
-		filename = filepath.Join(path, ".", dbName, ".", tableName, ".sql")
+	if globalOptions&PerTable != 0 {
+		filename = filepath.Join(globalPath, ".", dbName, ".", tableName, ".sql")
 	} else {
-		filename = filepath.Join(path, ".", dbName, ".sql")
+		filename = filepath.Join(globalPath, ".", dbName, ".sql")
 	}
 
-	var newFile OutputFile
+	return openFile(dbName, tableName, filename, globalOptions)
+}
 
+func openFile(dbName, tableName, path string, options int) (OutputFile, error) {
+	// prune a file if needed to make sure we've got room for this one
+
+	var newFile OutputFile
 	var err error
 	newFile.data, err = os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, filePermissions)
 	if err != nil {
@@ -155,18 +154,34 @@ func (f *OutputFile) Close() error {
 	}
 }
 
-func HasPrefix(s, prefix []byte) bool {
-	return len(s) >= len(prefix) &&
-		bytes.Equal(bytes.ToLower(s[0:len(prefix)]), bytes.ToLower(prefix))
-}
-
-func TrimPrefix(s, prefix []byte) []byte {
-	if HasPrefix(s, prefix) {
-		return s[len(prefix):]
+func (f *OutputFile) WriteRow(db, table, partition, colList, data []byte) error {
+	var chunks [][]byte
+	objectQuote := []byte("`")
+	empty := []byte("")
+	chunks = append(chunks, []byte("INSERT"))
+	if f.options&InsertIgnore != 0 {
+		chunks = append(chunks, []byte("IGNORE"))
 	}
-	return s
-}
+	chunks = append(chunks, []byte("INTO"))
 
-func (f *OutputFile) WriteRow(line []byte) error {
-	return nil
+	tableSpec := bytes.Join([][]byte{empty, table, empty}, objectQuote)
+	if f.options&StaticDatabase != 0 {
+		firstLine := bytes.Join([][]byte{empty, db, []byte(".")}, objectQuote)
+		tableSpec = append(firstLine, tableSpec...)
+	}
+	chunks = append(chunks, tableSpec)
+
+	if len(partition) > 0 {
+		chunks = append(chunks, []byte("PARTITION"))
+		chunks = append(chunks, bytes.Join([][]byte{empty, partition, empty}, objectQuote))
+	}
+
+	if len(colList) > 0 {
+		chunks = append(chunks, colList, []byte("VALUES"))
+	}
+
+	chunks = append(chunks, data, []byte(";"))
+
+	_, err := f.data.Write(bytes.Join(chunks, []byte(" ")))
+	return err
 }
