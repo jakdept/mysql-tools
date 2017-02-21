@@ -14,12 +14,17 @@ const (
 	DropDb
 	CreateDb
 	DropTable
+	DropTableSafe
 	CreateTable
 	InsertOverwrite
 	InsertIgnore
 	StaticDatabase
 )
 
+var semiColon = []byte(";")
+var objectQuote = []byte("`")
+var objectSep = []byte(".")
+var emptySlice = []byte("")
 var openFiles openFileList
 var filePermissions os.FileMode
 var maxOpenFiles = 256
@@ -61,12 +66,12 @@ func openFile(dbName, tableName, path string, options int) (OutputFile, error) {
 
 	var newFile OutputFile
 	var err error
-	newFile.data, err = os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, filePermissions)
+	newFile.data, err = os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, filePermissions)
 	if err != nil {
 		return OutputFile{}, fmt.Errorf("problem opening the data output file: %v", err)
 	}
 	if options&PerTable != 0 && options&CreateTable != 0 {
-		newFile.create, err = os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, filePermissions)
+		newFile.create, err = os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, filePermissions)
 		if err != nil {
 			newFile.data.Close()
 			return OutputFile{}, fmt.Errorf("problem opening the table info file: %v", err)
@@ -156,24 +161,21 @@ func (f *OutputFile) Close() error {
 
 func (f *OutputFile) WriteRow(db, table, partition, colList, data []byte) error {
 	var chunks [][]byte
-	objectQuote := []byte("`")
-	empty := []byte("")
 	chunks = append(chunks, []byte("INSERT"))
 	if f.options&InsertIgnore != 0 {
 		chunks = append(chunks, []byte("IGNORE"))
 	}
 	chunks = append(chunks, []byte("INTO"))
 
-	tableSpec := bytes.Join([][]byte{empty, table, empty}, objectQuote)
+	tableSpec := [][]byte{objectQuote, table, objectQuote}
 	if f.options&StaticDatabase != 0 {
-		firstLine := bytes.Join([][]byte{empty, db, []byte(".")}, objectQuote)
-		tableSpec = append(firstLine, tableSpec...)
+		tableSpec = append([][]byte{objectQuote, db, objectQuote, objectSep}, tableSpec...)
 	}
-	chunks = append(chunks, tableSpec)
+	chunks = append(chunks, bytes.Join(tableSpec, emptySlice))
 
 	if len(partition) > 0 {
 		chunks = append(chunks, []byte("PARTITION"))
-		chunks = append(chunks, bytes.Join([][]byte{empty, partition, empty}, objectQuote))
+		chunks = append(chunks, bytes.Join([][]byte{objectQuote, partition, objectQuote}, emptySlice))
 	}
 
 	if len(colList) > 0 {
@@ -183,5 +185,33 @@ func (f *OutputFile) WriteRow(db, table, partition, colList, data []byte) error 
 	chunks = append(chunks, data, []byte(";"))
 
 	_, err := f.data.Write(bytes.Join(chunks, []byte(" ")))
+	return err
+}
+
+func (f *OutputFile) WriteDropTable(db, table []byte, tempoary bool) error {
+	if f.options&DropTable == 0 {
+		// if you ended up here and are not writing these, abandon
+		return nil
+	}
+
+	var chunks [][]byte
+	chunks = append(chunks, []byte("DROP"))
+	if tempoary {
+		chunks = append(chunks, []byte("TEMPOARY"))
+	}
+	chunks = append(chunks, []byte("TABLE"))
+
+	if f.options&DropTableSafe != 0 {
+		chunks = append(chunks, []byte("IF NOT EXISTS"))
+	}
+
+	tableSpec := [][]byte{objectQuote, table, objectQuote}
+	if f.options&StaticDatabase != 0 {
+		tableSpec = append([][]byte{objectQuote, db, objectQuote, objectSep}, tableSpec...)
+	}
+
+	chunks = append(chunks, bytes.Join(tableSpec, emptySlice))
+
+	_, err := f.create.Write(bytes.Join(chunks, []byte(" ")))
 	return err
 }
