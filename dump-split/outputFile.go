@@ -16,6 +16,7 @@ const (
 	DropTable
 	DropTableSafe
 	CreateTable
+	CreateTableSafe
 	InsertOverwrite
 	InsertIgnore
 	StaticDatabase
@@ -25,6 +26,7 @@ var semiColon = []byte(";")
 var objectQuote = []byte("`")
 var objectSep = []byte(".")
 var emptySlice = []byte("")
+var space = []byte(" ")
 var openFiles openFileList
 var filePermissions os.FileMode
 var maxOpenFiles = 256
@@ -182,9 +184,9 @@ func (f *OutputFile) WriteRow(db, table, partition, colList, data []byte) error 
 		chunks = append(chunks, colList, []byte("VALUES"))
 	}
 
-	chunks = append(chunks, data, []byte(";"))
+	chunks = append(chunks, data, semiColon)
 
-	_, err := f.data.Write(bytes.Join(chunks, []byte(" ")))
+	_, err := f.data.Write(bytes.Join(chunks, space))
 	return err
 }
 
@@ -212,6 +214,41 @@ func (f *OutputFile) WriteDropTable(db, table []byte, tempoary bool) error {
 
 	chunks = append(chunks, bytes.Join(tableSpec, emptySlice))
 
-	_, err := f.create.Write(bytes.Join(chunks, []byte(" ")))
+	_, err := f.create.Write(bytes.Join(chunks, space))
+	return err
+}
+
+func (f *OutputFile) WriteCloneTable(db, table, srcDb, srcTable []byte, tempoary bool) error {
+	if f.options&DropTable == 0 {
+		// if you ended up here and are not writing these, abandon
+		return nil
+	}
+
+	var chunks [][]byte
+	chunks = append(chunks, []byte("CREATE"))
+	if tempoary {
+		chunks = append(chunks, []byte("TEMPOARY"))
+	}
+	chunks = append(chunks, []byte("TABLE"))
+
+	if f.options&CreateTableSafe != 0 {
+		chunks = append(chunks, []byte("IF NOT EXISTS"))
+	}
+
+	tableSpec := [][]byte{objectQuote, table, objectQuote}
+	if f.options&StaticDatabase != 0 {
+		tableSpec = append([][]byte{objectQuote, db, objectQuote, objectSep}, tableSpec...)
+	}
+	chunks = append(chunks, bytes.Join(tableSpec, emptySlice))
+
+	chunks = append(chunks, []byte("LIKE"))
+
+	tableSpec = [][]byte{objectQuote, srcTable, objectQuote}
+	if f.options&StaticDatabase != 0 {
+		tableSpec = append([][]byte{objectQuote, srcDb, objectQuote, objectSep}, tableSpec...)
+	}
+	chunks = append(chunks, bytes.Join(tableSpec, emptySlice))
+
+	_, err := f.create.Write(bytes.Join(chunks, space))
 	return err
 }
